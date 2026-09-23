@@ -2554,18 +2554,19 @@ var ESTANDAR_DATA_DEFAULT={"Solomo":{antiguo:70,nuevo:80,linea:null},"Cañón":{
 var ESTANDAR_DATA=ESTANDAR_DATA_DEFAULT;
 (function(){try{var raw=localStorage.getItem("updOverride_ESTANDAR_DATA");if(raw)ESTANDAR_DATA=JSON.parse(raw);}catch(e){console.warn("No se pudo aplicar override de ESTANDAR_DATA",e);}})();
 // Promedio histórico de %RINDE FILETE por proteína, ponderado por peso, sobre TODOS los registros de "DATOS DE PROTEINAS 2025..xlsx" (sin filtrar por período)
+// Promedio histórico global = promedio aritmético SIMPLE de %Rinde Filete por proteína (todas las filas, sin ponderar por kilos)
 var APROV_HIST_DATA=(function(){
   var byProt={};
   PORC_DATA.forEach(function(d){
     var pr=d[3];
-    if(!byProt[pr])byProt[pr]={pesoW:0,aprovW:0};
-    byProt[pr].pesoW+=d[5];
-    byProt[pr].aprovW+=d[7]*d[5];
+    if(!byProt[pr])byProt[pr]={sum:0,n:0};
+    byProt[pr].sum+=d[7];
+    byProt[pr].n++;
   });
   var out={};
   PROTEINAS.forEach(function(pr){
     var s=byProt[pr];
-    out[pr]=(s&&s.pesoW)?s.aprovW/s.pesoW:null;
+    out[pr]=(s&&s.n)?s.sum/s.n:null;
   });
   return out;
 })();
@@ -2575,7 +2576,7 @@ function pcp(n){return (n*100).toFixed(1)+"%";}
 function pCap(s){return s?s.replace(/\s+/g," ").trim().split(" ").map(function(w){return w?w.charAt(0).toUpperCase()+w.slice(1):w;}).join(" "):"";}
 var P_NAME_BLOCKLIST=["no concuerdan los kg"];
 function pNormKey(s){return s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();}
-var P_NAME_ALIASES={"caamilo rua":"Camilo Giraldo","sneider":"Sneider Vergara","cristian":"Cristian Rua","danitzapenaloza":"Danitza Peñaloza"}; // typos/variantes confirmadas manualmente por el usuario
+var P_NAME_ALIASES={"caamilo rua":"Camilo Giraldo","sneider":"Sneider Vergara","cristian":"Cristian Rua","danitzapenaloza":"Danitza Peñaloza","danitza penalosa":"Danitza Peñaloza","esneider vargara":"Sneider Vergara","esneider vergara":"Sneider Vergara","andres h":"Andres Holguin","juan diego":"Juan Diego Saldarriaga","juan diego saldarriga":"Juan Diego Saldarriaga","sanitago zapata":"Santiago Zapata","santiago z":"Santiago Zapata","satiago zapata":"Santiago Zapata","santiago zerna":"Santiago Serna","santiaog serna":"Santiago Serna","william j":"William Jaramillo"}; // typos/variantes confirmadas manualmente por el usuario
 function pNombresList(s){return s?s.split(/\s*[,;]\s*|\s+y\s+/i).map(function(x){var cap=pCap(x);return P_NAME_ALIASES[pNormKey(cap)]||cap;}).filter(function(x){return x&&P_NAME_BLOCKLIST.indexOf(x.toLowerCase())===-1;}):[];}
 function pFmtDate(iso){if(!iso)return"—";var dt=new Date(iso+"T00:00:00");return dt.toLocaleDateString("es-CO",{day:"2-digit",month:"short",year:"numeric"});}
 function pWeekNum(iso){
@@ -2953,16 +2954,19 @@ function pPersonProteinPivot(rows){
   return people;
 }
 
-// Meta de kg/turno por proteína (auditoría manual) — alcanzar esta meta O el promedio histórico de %rendimiento basta para "Cumple"
-var P_KG_META={"Solomo":83,"Filete de Pollo":100,"Cañón":120,"Salmón":95};
-// Regla Cumple/No cumple: un operario NUNCA sale en rojo si su %rendimiento ≥ promedio histórico de la proteína,
-// ni tampoco si alcanza la meta de kg/turno — basta con cumplir UNA de las dos condiciones (O, no Y).
-function pCumpleEstado(pr,kgVal,aprovVal){
-  var kgMeta=P_KG_META[pr];
-  var kgOk=(kgMeta!=null&&kgVal!=null)?(kgVal>=kgMeta):false;
+// Dos reglas de color INDEPENDIENTES (cada valor de la celda se evalúa por su cuenta):
+// - Kilos/turno: verde si ≥ Estándar Antiguo de esa proteína (llegar al Nuevo también cumple, por ser más alto
+//   que el Antiguo, así que basta comparar contra el Antiguo); rojo solo si está por debajo de AMBOS.
+// - % Aprovechamiento: verde si ≥ Promedio Histórico Global de esa proteína (APROV_HIST_DATA); rojo si está por debajo.
+function pKgOk(pr,kgVal){
+  var s=ESTANDAR_DATA[pr];
+  if(!s||s.antiguo==null||kgVal==null)return false;
+  return kgVal>=s.antiguo;
+}
+function pAprovOk(pr,aprovVal){
   var hist=APROV_HIST_DATA[pr];
-  var aprovOk=(hist!=null&&aprovVal!=null)?(aprovVal>=hist):false;
-  return{cumple:kgOk||aprovOk};
+  if(hist==null||aprovVal==null)return false;
+  return aprovVal>=hist;
 }
 
 function pRenderHistAprovCard(){
@@ -3003,16 +3007,15 @@ function pPivotTable(rows){
       var aprovVal=cell?cell.aprov:null;
       var style="padding:0;border-bottom:1px solid rgba(0,0,0,.05);font-family:Segoe UI,Arial,sans-serif;";
       if(v===null){ h+='<td style="'+style+'padding:8px 12px;text-align:center;color:var(--text-muted);">—</td>'; return; }
-      var estado=pCumpleEstado(pr,v,aprovVal);
-      var color=estado.cumple?"#15803D":"#B91C1C";
-      var bg=estado.cumple?"#DCFCE7":"#FEE2E2";
-      var divider=estado.cumple?"rgba(21,128,61,.35)":"rgba(185,28,28,.35)";
-      style+="background:"+bg+";";
+      var kgOk=pKgOk(pr,v), aprovOk=pAprovOk(pr,aprovVal);
+      var kgColor=kgOk?"#15803D":"#B91C1C", kgBg=kgOk?"#DCFCE7":"#FEE2E2";
+      var aprovColor=aprovOk?"#15803D":"#B91C1C", aprovBg=aprovOk?"#DCFCE7":"#FEE2E2";
+      var divider="rgba(0,0,0,.12)";
       var cellHtml='<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;">';
-      cellHtml+='<div style="grid-column:1;grid-row:1;padding:8px 6px 3px;text-align:center;border-right:2px solid '+divider+';color:'+color+';font-weight:800;">'+pcn(v)+' kg</div>';
-      cellHtml+='<div style="grid-column:2;grid-row:1;padding:8px 6px 3px;text-align:center;color:'+color+';font-weight:800;">'+(aprovVal!=null?pcp(aprovVal):"—")+'</div>';
-      cellHtml+='<div style="grid-column:1;grid-row:2;padding:3px 6px 8px;text-align:center;border-right:2px solid '+divider+';color:'+color+';font-size:.62rem;font-weight:700;letter-spacing:.02em;">'+(estado.cumple?"✓ Cumple":"✗ No cumple")+'</div>';
-      cellHtml+='<div style="grid-column:2;grid-row:2;padding:3px 6px 8px;"></div>';
+      cellHtml+='<div style="grid-column:1;grid-row:1;padding:8px 6px 3px;text-align:center;border-right:2px solid '+divider+';background:'+kgBg+';color:'+kgColor+';font-weight:800;">'+pcn(v)+' kg</div>';
+      cellHtml+='<div style="grid-column:2;grid-row:1;padding:8px 6px 3px;text-align:center;background:'+aprovBg+';color:'+aprovColor+';font-weight:800;">'+(aprovVal!=null?pcp(aprovVal):"—")+'</div>';
+      cellHtml+='<div style="grid-column:1;grid-row:2;padding:3px 6px 8px;text-align:center;border-right:2px solid '+divider+';background:'+kgBg+';color:'+kgColor+';font-size:.62rem;font-weight:700;letter-spacing:.02em;">'+(kgOk?"✓ Cumple":"✗ No cumple")+'</div>';
+      cellHtml+='<div style="grid-column:2;grid-row:2;padding:3px 6px 8px;text-align:center;background:'+aprovBg+';color:'+aprovColor+';font-size:.62rem;font-weight:700;letter-spacing:.02em;">'+(aprovOk?"✓ Cumple":"✗ No cumple")+'</div>';
       cellHtml+='</div>';
       h+='<td style="'+style+'">'+cellHtml+'</td>';
     });
