@@ -4636,6 +4636,59 @@ function novWeekNum(iso){
 }
 NOVEDADES_DATA.forEach(function(d){d.push(novWeekNum(d[0]));}); // índice 7 = Clasificación (PT/MP), índice 8 = semana ISO del año
 
+// Reglas de clasificación PT/MP por palabra clave del producto, usadas SOLO cuando la columna
+// "Clasificación" del Excel viene vacía (esta siempre tiene prioridad). Confirmadas manualmente
+// por el usuario. Orden importa: más específico primero (ej. "MANI"/"NAPOLITANA" antes que "SALSA").
+var NOV_CLASIF_RULES=[
+  ["MANI","MP"],
+  ["NAPOLITANA","MP"],
+  ["ENS SALMON","PT"],
+  ["FILETE DE SALMON","PT"],
+  ["FILETE DE TILAPIA","MP"],
+  ["BASSA","MP"],
+  ["PAN MENU","MP"],
+  ["CREMA DE LECHE","MP"],
+  ["LECHE DESLACTOSADA","MP"],
+  ["QUINUA","PT"],
+  ["REDUCCION BALSAMICO","PT"],
+  ["QUESO","PT"],
+  ["MOZZARELLA","PT"],
+  ["POLLO DESMECHADO","PT"],
+  ["TOMATE CHERRY","MP"],
+  ["PAPA CAPIRA","MP"],
+  ["LASAGNA","MP"],
+  ["PASTA DE AJO","PT"],
+  ["PASTA CORTA","MP"],
+  ["ARROZ RISOTTO","PT"],
+  ["BERENJENA ASADA","PT"],
+  ["BOLOGNESA DE CARNE","PT"],
+  ["LENTEJAS","MP"],
+  ["DI MARE","PT"],
+  ["ALBONDIGA","PT"],
+  ["HUMMUS","PT"],
+  ["STROGANOFF","PT"],
+  ["ZUCCHIN","PT"],
+  ["BROCOLI","MP"],
+  ["ESPINACA","MP"],
+  ["PIMIENTA","MP"],
+  ["CAMARON","MP"],
+  ["CILANTRO","MP"],
+  ["FALAFEL","PT"],
+  ["TOCINETA","MP"],
+  ["LOMBARDA","PT"],
+  ["PULPA","MP"],
+  ["SALSA","PT"]
+];
+function novNormText(s){return s?String(s).normalize("NFD").replace(/[̀-ͯ]/g,"").toUpperCase().replace(/\./g,""):"";}
+function novInferClasif(producto){
+  var n=novNormText(producto);
+  for(var i=0;i<NOV_CLASIF_RULES.length;i++){
+    if(n.indexOf(NOV_CLASIF_RULES[i][0])!==-1) return NOV_CLASIF_RULES[i][1];
+  }
+  return "";
+}
+function novClasif(d){ return d[7]||novInferClasif(d[1]); }
+
 function novUniqueSorted(idx){
   return [...new Set(NOVEDADES_DATA.map(function(d){return d[idx];}).filter(Boolean))].sort(function(a,b){return String(a).localeCompare(String(b),"es");});
 }
@@ -4661,7 +4714,7 @@ function novRows(){
     if(punto&&d[6]!==punto)return false;
     if(prod&&d[1]!==prod)return false;
     if(def&&d[4]!==def)return false;
-    if(clasif&&d[7]!==clasif)return false;
+    if(clasif&&novClasif(d)!==clasif)return false;
     if(q){
       var hay=[d[1],d[3],d[4],d[6]].join(" ").toLowerCase();
       if(hay.indexOf(q)===-1)return false;
