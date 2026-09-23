@@ -330,6 +330,8 @@ main{padding:2rem;max-width:1700px;margin:0 auto;}
 <div id="tab-novedades" class="tab-panel"><div class="filter-bar">
   <span class="filter-label">Mes</span>
   <select class="filter-select" id="nov-mes"><option value="">Todos</option></select>
+  <span class="filter-label">Semana</span>
+  <div class="v-ms" id="nov-sem-ms" style="position:relative;display:inline-block;"><button type="button" class="filter-select v-ms-btn" onclick="vMsToggle('nov-sem')" style="cursor:pointer;text-align:left;min-width:130px;">Todas</button><div class="v-ms-panel" id="nov-sem-panel" style="display:none;position:absolute;top:105%;left:0;z-index:60;background:#fff;border:1px solid rgba(0,0,0,.12);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.16);padding:.5rem;max-height:320px;overflow-y:auto;min-width:220px;"></div></div>
   <span class="filter-label">Punto de Venta</span>
   <select class="filter-select" id="nov-punto"><option value="">Todos</option></select>
   <span class="filter-label">Producto</span>
@@ -3329,7 +3331,7 @@ function vSems(){
   var ss=[...new Set(ENVIOS_MERGED.filter(function(d){return(!a||d[1]==a)&&(!m||d[2]==m);}).map(function(d){return d[16];}))].sort(function(x,y){return x-y;});
   var opts=ss.map(function(s){return{value:String(s),label:"Semana "+s};});
   if(!V_MS_STATE["v-sem"]){
-    vMsInit("v-sem",opts,"Todas",true);
+    vMsInit("v-sem",opts,"Todas",true,function(){vDetailPage=0;vApply();});
   } else {
     var st=V_MS_STATE["v-sem"];
     st.options=opts;
@@ -3343,8 +3345,8 @@ function vSems(){
 var V_MS_STATE={};
 var V_MS_LINKS={};
 function vMsStateKey(instanceId){ return V_MS_LINKS[instanceId]||instanceId; }
-function vMsInit(key,options,allLabel,searchable){
-  V_MS_STATE[key]={options:options,selected:new Set(),search:"",allLabel:allLabel,searchable:searchable};
+function vMsInit(key,options,allLabel,searchable,onChange){
+  V_MS_STATE[key]={options:options,selected:new Set(),search:"",allLabel:allLabel,searchable:searchable,onChange:onChange};
   V_MS_LINKS[key]=key;
   vMsUpdateButton(key);
 }
@@ -3396,13 +3398,14 @@ function vMsToggleValue(instanceId,val,checked){
   var st=V_MS_STATE[key];
   if(checked) st.selected.add(String(val)); else st.selected.delete(String(val));
   vMsSyncInstances(key);
-  vDetailPage=0;
-  vApply();
+  if(st.onChange) st.onChange();
 }
 function vMsClear(instanceId){
   var key=vMsStateKey(instanceId);
-  V_MS_STATE[key].selected.clear();
-  vMsRenderPanel(instanceId); vMsSyncInstances(key); vDetailPage=0; vApply();
+  var st=V_MS_STATE[key];
+  st.selected.clear();
+  vMsRenderPanel(instanceId); vMsSyncInstances(key);
+  if(st.onChange) st.onChange();
 }
 function vMsUpdateButton(instanceId){
   var key=vMsStateKey(instanceId);
@@ -3420,13 +3423,15 @@ document.addEventListener("click",function(e){
   if(!e.target.closest(".v-ms")){ document.querySelectorAll(".v-ms-panel").forEach(function(p){p.style.display="none";}); }
 });
 window.vMsToggle=vMsToggle; window.vMsSearch=vMsSearch; window.vMsToggleValue=vMsToggleValue; window.vMsClear=vMsClear;
+window.vMsInit=vMsInit; window.vMsLinkInstance=vMsLinkInstance; window.vMsUpdateButton=vMsUpdateButton; window.V_MS_STATE=V_MS_STATE;
 
+var vOnChange=function(){vDetailPage=0;vApply();};
 var vPdvs=[...new Set(ENVIOS_MERGED.map(function(d){return d[0];}))].sort();
-vMsInit("v-pdv", vPdvs.map(function(p){return{value:p,label:vPdvLabel(p)};}), "Todos", true);
+vMsInit("v-pdv", vPdvs.map(function(p){return{value:p,label:vPdvLabel(p)};}), "Todos", true, vOnChange);
 var vRefs=[...new Set(ENVIOS_MERGED.map(function(d){return d[4];}))].filter(Boolean).sort();
-vMsInit("v-ref", vRefs.map(function(r){return{value:r,label:r};}), "Todas", true);
+vMsInit("v-ref", vRefs.map(function(r){return{value:r,label:r};}), "Todas", true, vOnChange);
 var vDescs=[...new Set(ENVIOS_MERGED.map(function(d){return d[5];}))].filter(Boolean).sort();
-vMsInit("v-desc", vDescs.map(function(d){return{value:d,label:d};}), "Todas", true);
+vMsInit("v-desc", vDescs.map(function(d){return{value:d,label:d};}), "Todas", true, vOnChange);
 var V_TIPO_OVERRIDE={"PT0110":"No PT","PT0111":"No PT"}; // Cupcakes: c\u00f3digo PT pero responsable real es Compras, no Producci\u00f3n
 function vTipoRef(ref){
   if(!ref) return "Otro";
@@ -3448,7 +3453,7 @@ function vTipoBadge(ref){
   var resp=V_RESPONSABLE[t]?(" · "+V_RESPONSABLE[t]):"";
   return '<span style="display:inline-block;padding:1px 7px;border-radius:99px;font-size:.6rem;font-weight:700;color:#fff;background:'+c+';white-space:nowrap;">'+t+resp+'</span>';
 }
-vMsInit("v-tipo", V_TIPOS.map(function(t){return{value:t,label:t};}), "Todos", false);
+vMsInit("v-tipo", V_TIPOS.map(function(t){return{value:t,label:t};}), "Todos", false, vOnChange);
 vMsLinkInstance("v-tipo-quick","v-tipo");
 vSems();
 
@@ -4617,10 +4622,22 @@ document.addEventListener("DOMContentLoaded",function(){
 var NOV_COLORS=["#7A1A2E","#B7A254","#2563EB","#16A34A","#9333EA","#DC2626","#0EA5E9","#F59E0B","#059669","#6366F1","#DB2777","#65A30D"];
 var elNM=document.getElementById("nov-mes"),elNP=document.getElementById("nov-punto"),elNPr=document.getElementById("nov-producto"),elND=document.getElementById("nov-defecto"),elNQ=document.getElementById("nov-search");
 
+function novWeekNum(iso){
+  if(!iso) return null;
+  var d=new Date(iso+"T00:00:00");
+  var jan1=new Date(d.getFullYear(),0,1);
+  var days=Math.round((d-jan1)/86400000);
+  var wd1=jan1.getDay()+1;
+  return Math.floor((days+wd1-1)/7)+1;
+}
+NOVEDADES_DATA.forEach(function(d){d.push(novWeekNum(d[0]));}); // índice 7 = semana ISO del año
+
 function novUniqueSorted(idx){
   return [...new Set(NOVEDADES_DATA.map(function(d){return d[idx];}).filter(Boolean))].sort(function(a,b){return String(a).localeCompare(String(b),"es");});
 }
 function novPopulateFilters(){
+  var semanas=[...new Set(NOVEDADES_DATA.map(function(d){return d[7];}).filter(function(w){return w!=null;}))].sort(function(a,b){return a-b;});
+  vMsInit("nov-sem", semanas.map(function(w){return{value:String(w),label:"Semana "+w};}), "Todas", true, function(){novDetailPage=0;novApply();});
   var meses=[...new Set(NOVEDADES_DATA.map(function(d){return d[0]?d[0].slice(0,7):null;}).filter(Boolean))].sort();
   elNM.innerHTML='<option value="">Todos</option>';
   meses.forEach(function(mk){
@@ -4633,8 +4650,10 @@ function novPopulateFilters(){
 }
 function novRows(){
   var mes=elNM.value,punto=elNP.value,prod=elNPr.value,def=elND.value,q=elNQ.value.trim().toLowerCase();
+  var semSel=V_MS_STATE["nov-sem"]?V_MS_STATE["nov-sem"].selected:null;
   return NOVEDADES_DATA.filter(function(d){
     if(mes&&(!d[0]||d[0].slice(0,7)!==mes))return false;
+    if(semSel&&semSel.size&&!semSel.has(String(d[7])))return false;
     if(punto&&d[6]!==punto)return false;
     if(prod&&d[1]!==prod)return false;
     if(def&&d[4]!==def)return false;
@@ -4647,6 +4666,7 @@ function novRows(){
 }
 window.novResetFilters=function(){
   elNM.value="";elNP.value="";elNPr.value="";elND.value="";elNQ.value="";
+  if(V_MS_STATE["nov-sem"]){V_MS_STATE["nov-sem"].selected.clear();V_MS_STATE["nov-sem"].search="";vMsUpdateButton("nov-sem");}
   novApply();
 };
 elNM.addEventListener("change",novApply);
