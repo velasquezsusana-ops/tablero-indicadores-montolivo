@@ -4473,6 +4473,53 @@ var UPD_FILE_DEFS=[
    desc:"Alimenta la pestaña Novedades de Calidad (solo registros del año 2026).",parse:updParseNovedades}
 ];
 var UPD_STAGED={};
+// Para detectar archivos sospechosos (equivocados/incompletos): compara el conteo de filas del
+// archivo recién adjuntado contra el conteo actualmente publicado de ese mismo dato. Solo aplica
+// a los archivos cuyo resultado es un arreglo simple de filas (no a "estandar"/"escenario").
+var UPD_CURRENT_COUNT={
+  bdop:function(){return RAW_DATA.length;},
+  proteinas:function(){return PORC_DATA.length;},
+  devoluciones:function(){return DEVOL_DATA.length;},
+  picking:function(){return ENVIOS_DATA.length;},
+  ensambles:function(){return COMPENS_DATA.length;},
+  ventas:function(){return VENTAS_DATA.length;},
+  novedades:function(){return NOVEDADES_DATA.length;}
+};
+function updMainArray(result){
+  var keys=Object.keys(result);
+  for(var i=0;i<keys.length;i++){ if(Array.isArray(result[keys[i]])) return result[keys[i]]; }
+  return null;
+}
+function updPreviewTable(rows){
+  if(!rows||!rows.length) return '<div style="font-size:.72rem;color:var(--text-muted);">Sin vista previa disponible para este archivo.</div>';
+  var nCols=rows[0].length;
+  var h='<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:.68rem;white-space:nowrap;">';
+  h+='<thead><tr>';
+  for(var c=0;c<nCols;c++){ h+='<th style="padding:3px 8px;border:1px solid rgba(0,0,0,.1);background:var(--wine-pale);color:var(--wine-dark);text-align:left;">Col '+(c+1)+'</th>'; }
+  h+='</tr></thead><tbody>';
+  rows.forEach(function(r){
+    h+='<tr>';
+    for(var c=0;c<nCols;c++){ h+='<td style="padding:3px 8px;border:1px solid rgba(0,0,0,.08);">'+(r[c]==null?'—':String(r[c]).replace(/</g,'&lt;'))+'</td>'; }
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+  return h;
+}
+window.updTogglePreview=function(key){
+  var el=document.getElementById("upd-preview-"+key);
+  if(!el) return;
+  var willOpen=el.style.display==="none"||!el.style.display;
+  if(willOpen){
+    var staged=UPD_STAGED[key];
+    el.innerHTML=staged?updPreviewTable(staged.previewRows):"";
+    el.style.display="block";
+  } else {
+    el.style.display="none";
+  }
+};
+window.updConfirmWarning=function(key,checked){
+  if(UPD_STAGED[key]) UPD_STAGED[key].warningAck=checked;
+};
 
 function updCardHtml(def){
   return '<div class="kpi-card" style="border-left:5px solid var(--wine);" id="upd-card-'+def.key+'">'+
@@ -4483,6 +4530,7 @@ function updCardHtml(def){
       '<input type="file" accept=".xlsx,.xlsb,.csv" style="display:none;" onchange="updHandleFile(&quot;'+def.key+'&quot;,this)">'+
     '</label>'+
     '<div id="upd-status-'+def.key+'" style="margin-top:.75rem;font-size:.72rem;color:var(--text-muted);">En uso (datos por defecto)</div>'+
+    '<div id="upd-preview-'+def.key+'" style="display:none;margin-top:.6rem;"></div>'+
   '</div>';
 }
 function updRenderGrid(){
@@ -4495,7 +4543,19 @@ function updRefreshCardStatus(key){
   var el=document.getElementById("upd-status-"+key);
   if(!el) return;
   if(UPD_STAGED[key]){
-    el.innerHTML='<span style="color:#15803D;font-weight:700;">&#10003; Archivo preparado:</span> '+UPD_STAGED[key].fileName+' ('+UPD_STAGED[key].rowCount+' filas detectadas)';
+    var staged=UPD_STAGED[key];
+    var h='<span style="color:#15803D;font-weight:700;">&#10003; Archivo preparado:</span> '+staged.fileName+' ('+staged.rowCount+' filas detectadas)';
+    if(staged.previewRows&&staged.previewRows.length){
+      h+='<div style="margin-top:.4rem;"><a href="javascript:void(0)" onclick="updTogglePreview(&quot;'+key+'&quot;)" style="color:var(--wine-dark);font-weight:700;text-decoration:none;">&#128065; Ver vista previa (primeras '+staged.previewRows.length+' filas)</a></div>';
+    }
+    if(staged.warning){
+      h+='<div style="margin-top:.5rem;padding:.5rem .6rem;border-radius:6px;background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;">'+
+         '<div style="font-weight:700;margin-bottom:.3rem;">&#9888; '+staged.warning+'</div>'+
+         '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">'+
+           '<input type="checkbox" onchange="updConfirmWarning(&quot;'+key+'&quot;,this.checked)"'+(staged.warningAck?" checked":"")+'> Confirmo que revisé el archivo y quiero publicarlo así'+
+         '</label></div>';
+    }
+    el.innerHTML=h;
   } else if(localStorage.getItem("updPublished_"+key)){
     el.innerHTML='<span style="color:#1D4ED8;font-weight:700;">&#10003; Publicado:</span> '+(localStorage.getItem("updPublishedName_"+key)||"archivo actualizado");
   } else {
@@ -4515,7 +4575,18 @@ window.updHandleFile=function(key,inputEl){
   if(el) el.innerHTML='<span style="color:var(--text-muted);">Leyendo archivo…</span>';
   updReadWorkbook(file).then(function(wb){
     var result=def.parse(wb);
-    UPD_STAGED[key]={fileName:file.name,rowCount:result.rowCount,result:result};
+    var warning=null;
+    var getCurrent=UPD_CURRENT_COUNT[key];
+    if(getCurrent){
+      var current=getCurrent();
+      if(current>0){
+        var ratio=result.rowCount/current;
+        if(ratio<0.5||ratio>2){
+          warning="Este archivo tiene "+result.rowCount+" filas; lo que está publicado ahora mismo tiene "+current+". Es una diferencia grande — revisa que sea el archivo correcto (nombre, período, datos completos) antes de publicar.";
+        }
+      }
+    }
+    UPD_STAGED[key]={fileName:file.name,rowCount:result.rowCount,result:result,warning:warning,warningAck:false,previewRows:(updMainArray(result)||[]).slice(0,5)};
     updRefreshCardStatus(key);
   }).catch(function(err){
     updCardError(key,(err&&err.message)?err.message:"No se pudo leer el archivo.");
@@ -4543,6 +4614,13 @@ function updArraySizeBytes(str){ return new Blob([str]).size; }
 window.updPublish=function(){
   var keys=Object.keys(UPD_STAGED);
   if(!keys.length){ updShowToast("Adjunta al menos un archivo antes de publicar.","#B91C1C"); return; }
+
+  var unconfirmed=keys.filter(function(k){ return UPD_STAGED[k].warning && !UPD_STAGED[k].warningAck; });
+  if(unconfirmed.length){
+    var defs=unconfirmed.map(function(k){ var d=UPD_FILE_DEFS.filter(function(x){return x.key===k;})[0]; return d?d.label:k; });
+    updShowToast("Revisa y confirma la advertencia de: "+defs.join(", ")+" antes de publicar.","#B91C1C");
+    return;
+  }
 
   var toSave={}; // localStorageKey -> string
   var esPatch=null;
